@@ -28,6 +28,7 @@ typedef TextGeometryOptions = {
     ? point_size: Float,
     ? line_spacing: Float,
     ? letter_spacing: Float,
+    ? letter_snapping : Bool,
 
     ? bounds : Rectangle,
     ? bounds_wrap : Bool,
@@ -57,6 +58,7 @@ class TextGeometry extends Geometry {
         @:isVar public var point_size (default,set) : Float = 32.0;
         @:isVar public var line_spacing (default,set) : Float = 0.0;
         @:isVar public var letter_spacing (default,set) : Float = 0.0;
+        @:isVar public var letter_snapping (default,set) : Bool = false;
 
         @:isVar public var bounds (default,set) : Rectangle;
         @:isVar public var bounds_wrap (default,set) : Bool = false;
@@ -108,7 +110,7 @@ class TextGeometry extends Geometry {
 
         static var tab_regex : EReg = new EReg('\t','gim');
 
-    public function new( _options:TextGeometryOptions ) {
+    public function new(_options:TextGeometryOptions) {
 
         options = _options;
         emitter = new luxe.Emitter<EvTextGeometry>();
@@ -186,6 +188,44 @@ class TextGeometry extends Geometry {
 
 //Internal
 
+    override function drop( ?remove:Bool = true ) {
+
+        text = null;
+        font = null;
+        bounds = null;
+        outline_color = null;
+        glow_color = null;
+        if(line_widths != null) {
+            line_widths.splice(0,line_widths.length);
+            line_widths = null;
+        }
+        if(line_offsets != null) {
+            line_offsets.splice(0,line_offsets.length);
+            line_offsets = null;
+        }
+        if(lines != null) {
+            lines.splice(0,lines.length);
+            lines = null;
+        }
+        emitter = null;
+        options = null;
+        if(cache != null) {
+            while(cache.length > 0) {
+                var c = cache.pop();
+                while(c.length > 0) {
+                    var v = c.pop();
+                    v.destroy();
+                    v = null;
+                }
+                c = null;
+            }
+            cache = null;
+        }
+
+        super.drop(remove);
+
+    } //drop
+
 
     function default_options() {
 
@@ -200,6 +240,7 @@ class TextGeometry extends Geometry {
 
         //normal font stuff
 
+            if(options.letter_snapping != null) letter_snapping = options.letter_snapping;
             if(options.letter_spacing != null) letter_spacing = options.letter_spacing;
             if(options.line_spacing != null) line_spacing = options.line_spacing;
             if(options.point_size != null) point_size = options.point_size;
@@ -237,7 +278,7 @@ class TextGeometry extends Geometry {
     function set_text(_text:String) : String {
 
         if(_text == null) {
-            log('null text passed into TextGeometry!');
+            _debug('null text passed into TextGeometry!');
             _text = '';
         }
 
@@ -394,6 +435,12 @@ class TextGeometry extends Geometry {
                         //the geometry positioning
                     var _quad_x  = _line_x_offset + _cur_x + ( _char.xoffset * point_ratio );
                     var _quad_y  = _line_y_offset + _cur_y + ( _char.yoffset * point_ratio );
+
+                    if(letter_snapping) {
+                        //:todo: TextGeometry; letter_snapping test against round/floor with pixel fonts with @EduardoLopes
+                        _quad_x = Math.floor(_quad_x);
+                        _quad_y = Math.floor(_quad_y);
+                    }
                         //the texture page
                     var _page = font.pages[_char.page];
                         //work out the coordinates for the uv's
@@ -532,8 +579,10 @@ class TextGeometry extends Geometry {
 
         bounds = _bounds;
 
-            dirty_sizing = true;
-            update_text();
+        if(bounds == null) return bounds;
+
+        dirty_sizing = true;
+        update_text();
 
         return bounds;
 
@@ -550,6 +599,18 @@ class TextGeometry extends Geometry {
         return bounds_wrap;
 
     } //set_bounds_wrap
+
+    #if release inline #end
+    function set_letter_snapping( _snap:Bool ) {
+
+        letter_snapping = _snap;
+
+            dirty_sizing = true;
+            update_text();
+
+        return letter_snapping;
+
+    } //set_letter_snapping
 
     #if release inline #end
     function set_line_spacing(_line_spacing:Float) {
@@ -684,6 +745,8 @@ class TextGeometry extends Geometry {
     #if release inline #end
     function set_outline_color(c:Color) {
 
+        if(c == null) return outline_color = c;
+
         if(shader != null && sdf && unique) {
             shader.set_color('outline_color', c);
         }
@@ -694,6 +757,8 @@ class TextGeometry extends Geometry {
 
     #if release inline #end
     function set_glow_color(c:Color) {
+
+        if(c == null) return glow_color = c;
 
         if(shader != null && sdf && unique) {
             shader.set_color('glow_color', c);

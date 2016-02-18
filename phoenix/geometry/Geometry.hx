@@ -17,6 +17,10 @@ import snow.api.buffers.Float32Array;
 
 import snow.modules.opengl.GL;
 
+#if cpp
+using cpp.NativeArray;
+#end
+
 @:allow(phoenix.Batcher)
 class Geometry {
 
@@ -83,6 +87,10 @@ class Geometry {
     @:isVar public var dirty        (get, set) : Bool = false;
     @:isVar public var color        (default, set) : Color;
 
+        //:voltile:wip: whether or not the dirty flag is used or not
+        //if this is false, the geometry will submit even when not dirty
+    public var dirty_based = true;
+
         //internal bool flag for clip sorting and clipping state
     @:noCompletion @:isVar public var clip (get, set) : Bool;
 
@@ -95,7 +103,7 @@ class Geometry {
         //causing comparisons in a binary tree to fail. This value is never reset intentionally.
     static var _sequence_key : Int = -1;
 
-    public function new( ?options:GeometryOptions ) {
+    public function new(_options:GeometryOptions) {
 
         uuid = Luxe.utils.uniqueid();
         id = uuid;
@@ -117,45 +125,37 @@ class Geometry {
             //this only applies if batcher is supplied, but is overriden with no_batcher_add
         var _do_add = true;
 
-        if(options != null) {
 
-            id                   = def(options.id,              uuid);
-            color                = def(options.color,           new Color());
-            visible              = def(options.visible,         true);
-            immediate            = def(options.immediate,       false);
+        id                   = def(_options.id,              uuid);
+        color                = def(_options.color,           new Color());
+        visible              = def(_options.visible,         true);
+        immediate            = def(_options.immediate,       false);
 
-            //:todo: This section is WIP and considered volatile/not api
-            buffer_based         = def(options.buffer_based,    false);
-            object_space         = def(options.object_space,    false);
-            //end section
+        //:todo: This section is WIP and considered volatile/not api
+        buffer_based         = def(_options.buffer_based,    false);
+        object_space         = def(_options.object_space,    false);
+        //end section
 
-            state.depth          = def(options.depth,           state.depth);
-            state.texture        = def(options.texture,         state.texture);
-            state.primitive_type = def(options.primitive_type,  state.primitive_type);
-            state.shader         = def(options.shader,          state.shader);
+        state.depth          = def(_options.depth,           state.depth);
+        state.texture        = def(_options.texture,         state.texture);
+        state.primitive_type = def(_options.primitive_type,  state.primitive_type);
+        state.shader         = def(_options.shader,          state.shader);
 
-            if(options.clip_rect != null) {
-                var _r = options.clip_rect;
-                state.clip_x = _r.x;
-                state.clip_y = _r.y;
-                state.clip_w = _r.w;
-                state.clip_h = _r.h;
-            }
+        if(_options.clip_rect != null) {
+            var _r = _options.clip_rect;
+            state.clip_x = _r.x;
+            state.clip_y = _r.y;
+            state.clip_w = _r.w;
+            state.clip_h = _r.h;
+        }
 
-            transform.pos        = def(options.pos,             transform.pos);
-            transform.rotation   = def(options.rotation,        transform.rotation);
-            transform.scale      = def(options.scale,           transform.scale);
-            transform.origin     = def(options.origin,          transform.origin);
+        transform.pos        = def(_options.pos,             transform.pos);
+        transform.rotation   = def(_options.rotation,        transform.rotation);
+        transform.scale      = def(_options.scale,           transform.scale);
+        transform.origin     = def(_options.origin,          transform.origin);
 
-            if(options.no_batcher_add != null && options.no_batcher_add == true) {
-                _do_add = false;
-            }
-
-        } else { //options != null
-
-                //assign required
-            color = new Color();
-
+        if(_options.no_batcher_add != null && _options.no_batcher_add == true) {
+            _do_add = false;
         }
 
         _sequence_key++;
@@ -176,8 +176,8 @@ class Geometry {
 
             //only add it to a batcher if explicitly requested,
             //otherwise do not add to a batcher at all
-        if(options != null && options.batcher != null && _do_add) {
-            options.batcher.add( this );
+        if(_options.batcher != null && _do_add) {
+            _options.batcher.add( this );
         }
 
             //:todo: This is WIP/volatile and not considered api
@@ -248,6 +248,11 @@ class Geometry {
             transform = null;
         }
 
+        if(uniforms != null) {
+            uniforms.destroy();
+            uniforms = null;
+        }
+
         destroy_vbos();
         if(buffer_pos != null) {
             buffer_pos = null;
@@ -264,10 +269,6 @@ class Geometry {
 
         vertices.push( v );
 
-        if(vertices.length > Luxe.renderer.batcher.max_verts) {
-            throw '$id / Currently a single geometry cannot exceed the maximum vert count of ' + Luxe.renderer.batcher.max_verts;
-        }
-
     } //add
 
     public function remove( v : Vertex ) {
@@ -281,17 +282,39 @@ class Geometry {
                            vertlist : Float32Array, tcoordlist : Float32Array, colorlist : Float32Array, normallist : Float32Array
         ) {
 
-        for(v in vertices) {
+        var _mat = transform.world.matrix;
+        var _el = _mat.elements;
 
-                //the base position of the vert
-            _final_vert_position.set( v.pos.x, v.pos.y, v.pos.z, v.pos.w );
-                //apply the transform to the vert
-            _final_vert_position.transform( transform.world.matrix );
+        #if cpp
+            inline function tx(_x:Float,_y:Float,_z:Float) : Float return _el.unsafeGet(0) * _x + _el.unsafeGet(4) * _y + _el.unsafeGet(8)  * _z + _el.unsafeGet(12);
+            inline function ty(_x:Float,_y:Float,_z:Float) : Float return _el.unsafeGet(1) * _x + _el.unsafeGet(5) * _y + _el.unsafeGet(9)  * _z + _el.unsafeGet(13);
+            inline function tz(_x:Float,_y:Float,_z:Float) : Float return _el.unsafeGet(2) * _x + _el.unsafeGet(6) * _y + _el.unsafeGet(10) * _z + _el.unsafeGet(14);
+        #else
+            inline function tx(_x:Float,_y:Float,_z:Float) : Float return _el[0] * _x + _el[4] * _y + _el[8]  * _z + _el[12];
+            inline function ty(_x:Float,_y:Float,_z:Float) : Float return _el[1] * _x + _el[5] * _y + _el[9]  * _z + _el[13];
+            inline function tz(_x:Float,_y:Float,_z:Float) : Float return _el[2] * _x + _el[6] * _y + _el[10] * _z + _el[14];
+        #end
 
-                vertlist[(vert_index+0)] = _final_vert_position.x;
-                vertlist[(vert_index+1)] = _final_vert_position.y;
-                vertlist[(vert_index+2)] = _final_vert_position.z;
-                vertlist[(vert_index+3)] = _final_vert_position.w;
+        var _count = vertices.length;
+        var _idx = 0;
+
+        while(_idx < _count) {
+            var v = vertices[_idx];
+
+            var _vx = v.pos.x;
+            var _vy = v.pos.y;
+            var _vz = v.pos.z;
+
+                //the old positions must be used to
+                // transform correctly, for each of the components
+            var _tvx = tx(_vx, _vy, _vz);
+            var _tvy = ty(_vx, _vy, _vz);
+            var _tvz = tz(_vx, _vy, _vz);
+
+                vertlist[(vert_index+0)] = _tvx;
+                vertlist[(vert_index+1)] = _tvy;
+                vertlist[(vert_index+2)] = _tvz;
+                vertlist[(vert_index+3)] = v.pos.w;
 
             vert_index += 4;
 
@@ -320,6 +343,9 @@ class Geometry {
             #end
 
             normal_index += 4;
+
+
+            _idx++;
 
         } //each vertex
 
@@ -499,7 +525,7 @@ class Geometry {
     var _prev_count = 0;
     function update_buffers() : Bool {
 
-        if(!dirty) return false;
+        if(!dirty && dirty_based) return false;
 
         var _verts = vertices.length;
 

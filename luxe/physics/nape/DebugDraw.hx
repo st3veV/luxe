@@ -227,7 +227,7 @@ import luxe.options.RenderProperties;
 
         function draw_shape( _shape:Shape, _active_color:Color, _inactive_color:Color) {
 
-            var geom = new Geometry( {
+            var geom = new Geometry({
                 primitive_type: phoenix.Batcher.PrimitiveType.lines,
                 immediate: options.immediate,
                 depth: options.depth,
@@ -258,7 +258,7 @@ import luxe.options.RenderProperties;
 
         function draw_compound( _space:Compound) {
 
-            //:todo :
+            //:todo : I wanted to look at how nape default draws things to match if possible
 
         } //draw_compound
 
